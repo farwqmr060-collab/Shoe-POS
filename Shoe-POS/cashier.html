@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>شاشة الكاشير - نقطة البيع</title>
+    <!-- ربط ملف الهوية PWA -->
+    <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @media print {
+            body * {
+                visibility: hidden;
+            }
+
+            #invoice-section, #invoice-section * {
+                visibility: visible;
+            }
+
+            #invoice-section {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 80mm;
+                padding: 10px;
+                background-color: white;
+                border: none;
+                box-shadow: none;
+            }
+
+            .no-print {
+                display: none !important;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 h-screen flex overflow-hidden">
+
+    <!-- الجزء الأيمن: المنتجات والبحث -->
+    <div class="w-2/3 flex flex-col h-full bg-white border-l">
+        <div class="p-4 bg-gray-50 border-b flex justify-between items-center no-print">
+            <input type="text" id="searchInput" class="w-2/3 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="ابحث باسم أو كود الموديل...">
+            <button onclick="logout()" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 font-bold transition">تسجيل خروج</button>
+        </div>
+
+        <div class="p-4 flex-1 overflow-y-auto no-print">
+            <div id="loading" class="text-center text-gray-500 font-bold my-10">جاري تحميل المنتجات...</div>
+            <div id="products-grid" class="grid grid-cols-3 gap-4">
+                <!-- المنتجات ستظهر هنا -->
+            </div>
+        </div>
+    </div>
+
+    <!-- الجزء الأيسر: الفاتورة -->
+    <div id="invoice-section" class="w-1/3 bg-white flex flex-col h-full shadow-lg z-10">
+        <div class="p-4 text-center border-b">
+            <h2 class="text-2xl font-bold text-gray-800">Shoes Store</h2>
+            <p class="text-sm text-gray-500" id="current-date"></p>
+        </div>
+
+        <div class="flex-1 p-4 overflow-y-auto" id="cart-items"></div>
+
+        <div class="p-4 bg-gray-50 border-t">
+            <div class="flex justify-between items-center mb-4 text-xl font-bold text-gray-800">
+                <span>الإجمالي:</span>
+                <span id="total-price">0 ج.م</span>
+            </div>
+            <button onclick="checkoutAndPrint()" class="w-full bg-green-600 text-white font-bold py-3 rounded-lg hover:bg-green-700 text-lg no-print transition">
+                دفع وطباعة
+            </button>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        const supabaseUrl = 'https://dawjuahmdcsecilazvlx.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRhd2p1YWhtZGNzZWNpbGF6dmx4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA1NDQ1NDgsImV4cCI6MjEwNjEyMDU0OH0.sjZPVvsoQSJGzuqVTNHKgA7aKjf2QbwABQx1UQU0ndA';
+        const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+
+        let cart = [];
+        let totalPrice = 0;
+
+        document.getElementById('current-date').innerText = new Date().toLocaleDateString('ar-EG');
+
+        // جلب المنتجات
+        async function fetchProducts() {
+        const { data: shoes, error } = await supabase
+        .from('shoes')
+        .select(`id, name, price, shoe_sizes ( size, stock )`);
+
+        document.getElementById('loading').style.display = 'none';
+
+        if (error) {
+        alert('خطأ في جلب البيانات: ' + error.message);
+        return;
+        }
+        renderProducts(shoes);
+        }
+
+        // رسم المنتجات في الواجهة
+        function renderProducts(shoes) {
+        const grid = document.getElementById('products-grid');
+        grid.innerHTML = '';
+
+        shoes.forEach(shoe => {
+        let sizeButtons = '';
+        shoe.shoe_sizes.forEach(sz => {
+        sizeButtons += `<button onclick="addToCart('${shoe.name}', '${sz.size}', ${shoe.price})" class="bg-gray-100 px-3 py-1 rounded text-sm hover:bg-blue-600 hover:text-white font-bold transition">${sz.size}</button>`;
+        });
+
+        grid.innerHTML += `
+        <div class="product-card border rounded-lg p-3 text-center hover:shadow-md transition">
+        <div class="h-24 bg-gray-200 rounded mb-2 flex items-center justify-center font-bold text-gray-500">صورة</div>
+        <h3 class="font-bold text-gray-800">${shoe.name}</h3>
+        <p class="text-blue-600 font-bold mb-3">${shoe.price} ج.م</p>
+        <div class="flex flex-wrap justify-center gap-2">
+        ${sizeButtons}
+        </div>
+        </div>
+        `;
+        });
+        }
+
+        // البحث اللحظي
+        document.getElementById('searchInput').addEventListener('input', function(e) {
+        const searchTerm = e.target.value.toLowerCase();
+        const productCards = document.querySelectorAll('.product-card');
+
+        productCards.forEach(card => {
+        const productName = card.querySelector('h3').innerText.toLowerCase();
+        if(productName.includes(searchTerm)) {
+        card.style.display = 'block';
+        } else {
+        card.style.display = 'none';
+        }
+        });
+        });
+
+        // إدارة السلة
+        function addToCart(shoeName, size, price) {
+        cart.push({ name: shoeName, size: size, price: price });
+        totalPrice += price;
+        updateCartUI();
+        }
+
+        function updateCartUI() {
+        const cartContainer = document.getElementById('cart-items');
+        cartContainer.innerHTML = '';
+
+        cart.forEach((item, index) => {
+        cartContainer.innerHTML += `
+        <div class="flex justify-between items-center mb-3 p-2 bg-gray-50 border rounded text-sm">
+        <div>
+        <p class="font-bold text-gray-800">${item.name}</p>
+        <p class="text-gray-500">مقاس: ${item.size}</p>
+        </div>
+        <div class="flex items-center gap-3">
+        <span class="font-bold text-blue-600">${item.price}</span>
+        <button onclick="removeFromCart(${index})" class="text-red-500 font-bold hover:text-red-700 no-print px-2 py-1 bg-red-100 rounded">X</button>
+        </div>
+        </div>
+        `;
+        });
+        document.getElementById('total-price').innerText = `${totalPrice} ج.م`;
+        }
+
+        function removeFromCart(index) {
+        totalPrice -= cart[index].price;
+        cart.splice(index, 1);
+        updateCartUI();
+        }
+
+        // الحفظ في قاعدة البيانات
+        async function saveToSupabase(total, items) {
+        const { data: invData, error: invErr } = await supabase.from('invoices').insert([{ total_amount: total }]).select();
+        if (invErr) throw invErr;
+
+        const itemsToInsert = items.map(item => ({
+        invoice_id: invData[0].id, shoe_name: item.name, size: item.size, price: item.price
+        }));
+
+        const { error: itemsErr } = await supabase.from('invoice_items').insert(itemsToInsert);
+        if (itemsErr) throw itemsErr;
+        }
+
+        // الحفظ المحلي عند انقطاع الإنترنت
+        function saveOffline(total, items) {
+        let offlineInvoices = JSON.parse(localStorage.getItem('offlineInvoices')) || [];
+        offlineInvoices.push({ total, items });
+        localStorage.setItem('offlineInvoices', JSON.stringify(offlineInvoices));
+        }
+
+        // إتمام البيع والطباعة
+        async function checkoutAndPrint() {
+        if (cart.length === 0) return alert("الفاتورة فارغة!");
+
+        if (navigator.onLine) {
+        try {
+        await saveToSupabase(totalPrice, cart);
+        } catch (e) {
+        saveOffline(totalPrice, cart);
+        }
+        } else {
+        saveOffline(totalPrice, cart);
+        alert("لا يوجد إنترنت! تم حفظ الفاتورة محلياً وستُرفع للإدارة تلقائياً عند عودة الاتصال.");
+        }
+
+        window.print();
+        cart = [];
+        totalPrice = 0;
+        updateCartUI();
+        }
+
+        // مزامنة الفواتير المتأخرة
+        async function syncOfflineInvoices() {
+        let offlineInvoices = JSON.parse(localStorage.getItem('offlineInvoices')) || [];
+        if (offlineInvoices.length === 0) return;
+
+        for (let inv of offlineInvoices) {
+        try {
+        await saveToSupabase(inv.total, inv.items);
+        } catch (e) {
+        return;
+        }
+        }
+
+        localStorage.removeItem('offlineInvoices');
+        alert("تم مزامنة ورفع الفواتير الأوفلاين للإدارة بنجاح!");
+        }
+
+        function logout() {
+        window.location.href = 'index.html';
+        }
+
+        // تشغيل جلب المنتجات والمزامنة
+        fetchProducts();
+        window.addEventListener('online', syncOfflineInvoices);
+        window.addEventListener('load', syncOfflineInvoices);
+    </script>
+
+    <!-- تشغيل وضع الأوفلاين (PWA) -->
+    <script>
+        if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(err => console.log('SW fail: ', err));
+        });
+        }
+    </script>
+</body>
+</html>
